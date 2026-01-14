@@ -136,6 +136,9 @@ async function createTestPlan(): Promise<void> {
   console.log(changeSummary.slice(0, 500) + (changeSummary.length > 500 ? "..." : ""));
   console.log("\nCreating test plan...\n");
 
+  // Track total cost
+  let totalCost = 0;
+
   const q = query({
     prompt: `Use the playwright-test-planner agent to create a test plan and SAVE it to specs/ directory.
 
@@ -147,6 +150,7 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
       maxTurns: 50,
       cwd: process.cwd(),
       model: "sonnet",
+      maxBudgetUsd: parseFloat(process.env.PLAYMAKER_MAX_BUDGET || "5.0"),
       allowedTools: [
         "Task",
         "Bash",
@@ -164,6 +168,19 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
   });
 
   for await (const message of q) {
+    // Track costs from system messages
+    if (message.type === "system" && "cost" in message && typeof message.cost === "number") {
+      totalCost += message.cost;
+    }
+
+    // Handle budget exceeded error
+    if (message.type === "error" && "error" in message &&
+        typeof message.error === "object" && message.error !== null &&
+        "type" in message.error && message.error.type === "budget_exceeded") {
+      console.error("\n⚠️  Budget limit exceeded");
+      break;
+    }
+
     if (message.type === "assistant" && message.message) {
       const textContent = message.message.content.find(
         (c: unknown) => (c as { type: string }).type === "text"
@@ -175,6 +192,7 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
   }
 
   console.log("\nTest plan created in specs/ directory");
+  console.log(`💰 Total cost: $${totalCost.toFixed(4)}`);
 }
 
 createTestPlan().catch(console.error);
