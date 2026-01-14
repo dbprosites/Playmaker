@@ -1,12 +1,8 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-.venv/
+# Dependencies
+node_modules/
+
+# Build
+dist/
 
 # Environment
 .env
@@ -18,15 +14,9 @@ env/
 *.swp
 *.swo
 
-# Build
-dist/
-build/
-*.egg-info/
-
 # Test
-.pytest_cache/
-.coverage
-htmlcov/
+test-results/
+playwright-report/
 
 # OS
 .DS_Store
