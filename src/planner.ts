@@ -33,11 +33,24 @@ async function createTestPlan(): Promise<void> {
 
 **What changed:** ${changeSummary}
 
-IMPORTANT: The plan must be saved to a markdown file in the specs/ directory using the Write tool or planner_save_plan tool.`,
+IMPORTANT: The plan must be saved to a markdown file in the specs/ directory using the Write tool.`,
     options: {
       maxTurns: 50,
       cwd: process.cwd(),
       model: "sonnet",
+      allowedTools: [
+        "Task",
+        "Bash",
+        "Glob",
+        "Grep",
+        "Read",
+        "Edit",
+        "MultiEdit",
+        "Write",
+        "WebFetch",
+        "WebSearch",
+        "TodoWrite",
+      ],
     },
   });
 
