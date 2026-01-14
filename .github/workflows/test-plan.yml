@@ -25,7 +25,7 @@ jobs:
       - name: Create test plan
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: npm run plan ${{ vars.TARGET_URL || 'https://example.com' }}
+        run: npm run plan
 
       - name: Upload test plan
         uses: actions/upload-artifact@v4

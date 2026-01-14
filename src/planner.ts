@@ -8,19 +8,16 @@ function getChangeSummary(): string {
   return "A search bar has been added to the homepage that allows users to search for products.";
 }
 
-async function createTestPlan(targetUrl: string): Promise<void> {
+async function createTestPlan(): Promise<void> {
   const changeSummary = getChangeSummary();
 
-  console.log(`Target URL: ${targetUrl}`);
   console.log(`Change summary: ${changeSummary}`);
   console.log("Creating test plan...\n");
 
   const q = query({
     prompt: `Use the playwright-test-planner agent to create a test plan.
 
-**What changed:** ${changeSummary}
-
-**Target URL:** ${targetUrl}`,
+**What changed:** ${changeSummary}`,
     options: {
       maxTurns: 50,
       cwd: process.cwd(),
@@ -42,12 +39,4 @@ async function createTestPlan(targetUrl: string): Promise<void> {
   console.log("\nTest plan created in specs/ directory");
 }
 
-// CLI
-const targetUrl = process.argv[2];
-if (!targetUrl) {
-  console.error("Usage: npm run plan <target-url>");
-  console.error("Example: npm run plan https://example.com");
-  process.exit(1);
-}
-
-createTestPlan(targetUrl).catch(console.error);
+createTestPlan().catch(console.error);
