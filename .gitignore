@@ -7,7 +7,10 @@ __pycache__/
 venv/
 env/
 .venv/
+
+# Environment
 .env
+.env.local
 
 # IDE
 .idea/
