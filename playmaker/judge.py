@@ -1,22 +1,18 @@
 """Judge agent for evaluating Playwright test quality."""
 
 import asyncio
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-try:
-    from claude_agent_sdk import (
-        ClaudeSDKClient,
-        ClaudeAgentOptions,
-        AgentDefinition,
-        query,
-        AssistantMessage,
-        TextBlock,
-    )
-    HAS_SDK = True
-except ImportError:
-    HAS_SDK = False
+from claude_agent_sdk import (
+    ClaudeAgentOptions,
+    AgentDefinition,
+    query,
+    AssistantMessage,
+    TextBlock,
+)
 
 
 @dataclass
@@ -49,24 +45,29 @@ Respond with JSON:
 """
 
 
+class MissingAPIKeyError(Exception):
+    """Raised when ANTHROPIC_API_KEY is not set."""
+    pass
+
+
 class JudgeAgent:
     """Judge agent that evaluates Playwright test quality."""
 
     def __init__(self, model: str = "sonnet"):
         self.model = model
-        self._check_sdk()
+        self._check_api_key()
 
-    def _check_sdk(self):
-        if not HAS_SDK:
-            print("Warning: claude-agent-sdk not installed. Using fallback mode.")
+    def _check_api_key(self):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            raise MissingAPIKeyError(
+                "ANTHROPIC_API_KEY environment variable is not set.\n"
+                "Get your API key from https://console.anthropic.com/\n"
+                "Then set it: export ANTHROPIC_API_KEY='sk-ant-...'"
+            )
 
-    async def evaluate_test(self, test_content: str, use_ai: bool = True) -> JudgeVerdict:
+    async def evaluate_test(self, test_content: str) -> JudgeVerdict:
         """Evaluate a single test file content."""
-        if not use_ai or not HAS_SDK:
-            return self._fallback_evaluate(test_content)
-
-        try:
-            prompt = f"""Evaluate this Playwright test:
+        prompt = f"""Evaluate this Playwright test:
 
 ```typescript
 {test_content}
@@ -74,14 +75,10 @@ class JudgeAgent:
 
 Provide your verdict as JSON."""
 
-            result = await self._query_claude(prompt)
-            if not result:
-                # Empty response - fall back to heuristics
-                return self._fallback_evaluate(test_content)
-            return self._parse_verdict(result)
-        except Exception:
-            # Fall back to heuristics if SDK fails (e.g., no API key)
-            return self._fallback_evaluate(test_content)
+        result = await self._query_claude(prompt)
+        if not result:
+            raise RuntimeError("Empty response from Claude API")
+        return self._parse_verdict(result)
 
     async def evaluate_file(self, file_path: Path) -> JudgeVerdict:
         """Evaluate a test file by path."""
@@ -196,42 +193,6 @@ Provide your verdict as JSON."""
             suggestions=suggestions,
             summary=data.get("summary", data.get("verdict", raw_response[:100])),
         )
-
-    def _fallback_evaluate(self, test_content: str) -> JudgeVerdict:
-        """Simple heuristic evaluation when SDK unavailable."""
-        import re
-
-        issues = []
-        suggestions = []
-        score = 100
-
-        # Check for fragile CSS selectors (both quote styles)
-        if re.search(r'page\.locator\(["\']#', test_content) or re.search(r'page\.locator\(["\']\.', test_content):
-            issues.append("Uses fragile CSS selectors instead of role/text locators")
-            suggestions.append("Use getByRole(), getByText(), or getByTestId()")
-            score -= 20
-
-        if "page.waitForTimeout" in test_content:
-            issues.append("Uses hardcoded timeouts")
-            suggestions.append("Use waitFor conditions instead")
-            score -= 15
-
-        if "expect(" not in test_content:
-            issues.append("No assertions found")
-            score -= 30
-
-        if "test.describe" not in test_content and test_content.count("test(") > 3:
-            suggestions.append("Consider grouping related tests with test.describe")
-            score -= 5
-
-        return JudgeVerdict(
-            passed=score >= 70,
-            score=max(0, score),
-            issues=issues,
-            suggestions=suggestions,
-            summary=f"Heuristic evaluation: {score}/100",
-        )
-
 
 async def main():
     """Demo the judge agent."""

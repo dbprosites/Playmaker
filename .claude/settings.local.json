@@ -8,7 +8,8 @@
       "Bash(python -m venv:*)",
       "Bash(source:*)",
       "Bash(pip install:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(ANTHROPIC_API_KEY= python3 -c \"\nfrom playmaker import JudgeAgent\njudge = JudgeAgent\\(\\)\n\")"
     ]
   }
 }
