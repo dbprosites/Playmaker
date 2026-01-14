@@ -60,12 +60,13 @@ class JudgeAgent:
         if not HAS_SDK:
             print("Warning: claude-agent-sdk not installed. Using fallback mode.")
 
-    async def evaluate_test(self, test_content: str) -> JudgeVerdict:
+    async def evaluate_test(self, test_content: str, use_ai: bool = True) -> JudgeVerdict:
         """Evaluate a single test file content."""
-        if not HAS_SDK:
+        if not use_ai or not HAS_SDK:
             return self._fallback_evaluate(test_content)
 
-        prompt = f"""Evaluate this Playwright test:
+        try:
+            prompt = f"""Evaluate this Playwright test:
 
 ```typescript
 {test_content}
@@ -73,8 +74,14 @@ class JudgeAgent:
 
 Provide your verdict as JSON."""
 
-        result = await self._query_claude(prompt)
-        return self._parse_verdict(result)
+            result = await self._query_claude(prompt)
+            if not result:
+                # Empty response - fall back to heuristics
+                return self._fallback_evaluate(test_content)
+            return self._parse_verdict(result)
+        except Exception:
+            # Fall back to heuristics if SDK fails (e.g., no API key)
+            return self._fallback_evaluate(test_content)
 
     async def evaluate_file(self, file_path: Path) -> JudgeVerdict:
         """Evaluate a test file by path."""
@@ -121,20 +128,30 @@ Provide your verdict as JSON."""
         import json
         import re
 
-        # Extract JSON from response
-        json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+        # Try to extract JSON block from markdown code fence
+        json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response)
         if json_match:
             try:
-                data = json.loads(json_match.group())
-                return JudgeVerdict(
-                    passed=data.get("passed", False),
-                    score=data.get("score", 0),
-                    issues=data.get("issues", []),
-                    suggestions=data.get("suggestions", []),
-                    summary=data.get("summary", "Unable to parse response"),
-                )
+                data = json.loads(json_match.group(1))
+                return self._data_to_verdict(data, response)
             except json.JSONDecodeError:
                 pass
+
+        # Try to find any JSON object (with balanced braces)
+        try:
+            start = response.find('{')
+            if start != -1:
+                brace_count = 0
+                for i, char in enumerate(response[start:], start):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            data = json.loads(response[start:i + 1])
+                            return self._data_to_verdict(data, response)
+        except json.JSONDecodeError:
+            pass
 
         # Fallback if parsing fails
         return JudgeVerdict(
@@ -145,14 +162,51 @@ Provide your verdict as JSON."""
             summary=response[:200] if response else "No response",
         )
 
+    def _data_to_verdict(self, data: dict, raw_response: str) -> JudgeVerdict:
+        """Convert parsed JSON data to JudgeVerdict."""
+        # Handle various response formats
+        issues = data.get("issues", [])
+        if issues and isinstance(issues[0], dict):
+            # Extract descriptions from nested issue objects
+            issues = [i.get("description", str(i)) for i in issues]
+
+        suggestions = data.get("suggestions", data.get("recommendations", []))
+        if suggestions and isinstance(suggestions[0], dict):
+            suggestions = [s.get("description", str(s)) for s in suggestions]
+
+        # Determine score - may be explicit or inferred from verdict
+        score = data.get("score", 0)
+        if not score:
+            verdict_text = data.get("verdict", "").lower()
+            if "excellent" in verdict_text or "good" in verdict_text:
+                score = 85
+            elif "fair" in verdict_text or "acceptable" in verdict_text:
+                score = 70
+            elif "poor" in verdict_text:
+                score = 40
+            else:
+                score = 50  # Default middle score
+
+        passed = data.get("passed", score >= 70)
+
+        return JudgeVerdict(
+            passed=passed,
+            score=score,
+            issues=issues,
+            suggestions=suggestions,
+            summary=data.get("summary", data.get("verdict", raw_response[:100])),
+        )
+
     def _fallback_evaluate(self, test_content: str) -> JudgeVerdict:
         """Simple heuristic evaluation when SDK unavailable."""
+        import re
+
         issues = []
         suggestions = []
         score = 100
 
-        # Check for common issues
-        if "page.locator('#" in test_content or "page.locator('." in test_content:
+        # Check for fragile CSS selectors (both quote styles)
+        if re.search(r'page\.locator\(["\']#', test_content) or re.search(r'page\.locator\(["\']\.', test_content):
             issues.append("Uses fragile CSS selectors instead of role/text locators")
             suggestions.append("Use getByRole(), getByText(), or getByTestId()")
             score -= 20

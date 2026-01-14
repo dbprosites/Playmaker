@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx:*)",
+      "mcp__context7__query-docs",
+      "WebFetch(domain:playwright.dev)",
+      "Bash(tree:*)",
+      "Bash(python -m venv:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}
