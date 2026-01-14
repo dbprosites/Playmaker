@@ -3,41 +3,23 @@
 
 import argparse
 import asyncio
-import subprocess
-import sys
 from pathlib import Path
 
-from playmaker import JudgeAgent, PlaymakerOrchestrator
+from playmaker import JudgeAgent, PlannerAgent, PlaymakerOrchestrator
 
 
 def cmd_plan(args):
-    """Run Playwright planner agent."""
+    """Run AI-powered test planner."""
     print(f"🎯 Planning: {args.request}")
-    result = subprocess.run(
-        ["npx", "playwright", "planner", "--request", args.request],
-        cwd=args.dir,
-    )
-    sys.exit(result.returncode)
+    planner = PlannerAgent()
 
-
-def cmd_generate(args):
-    """Run Playwright generator agent."""
-    print("⚙️ Generating tests...")
-    result = subprocess.run(
-        ["npx", "playwright", "generator"],
-        cwd=args.dir,
-    )
-    sys.exit(result.returncode)
-
-
-def cmd_heal(args):
-    """Run Playwright healer agent."""
-    print("🩹 Healing tests...")
-    result = subprocess.run(
-        ["npx", "playwright", "healer"],
-        cwd=args.dir,
-    )
-    sys.exit(result.returncode)
+    if args.save:
+        output_dir = Path(args.dir) / "specs"
+        filepath = planner.plan_and_save(args.request, output_dir)
+        print(f"✅ Plan saved to: {filepath}")
+    else:
+        plan = planner.plan(args.request)
+        print("\n" + plan)
 
 
 async def cmd_judge(args):
@@ -80,7 +62,7 @@ async def cmd_workflow(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Playmaker - Playwright test agent orchestrator with Judge"
+        description="Playmaker - AI-powered Playwright test automation"
     )
     parser.add_argument("--dir", "-d", default=".", help="Project directory")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -88,15 +70,8 @@ def main():
     # Plan command
     plan_parser = subparsers.add_parser("plan", help="Create test plan from description")
     plan_parser.add_argument("request", help="Test description (e.g., 'Homepage contains a URL')")
-    plan_parser.set_defaults(func=lambda args: cmd_plan(args))
-
-    # Generate command
-    gen_parser = subparsers.add_parser("generate", help="Generate tests from plan")
-    gen_parser.set_defaults(func=lambda args: cmd_generate(args))
-
-    # Heal command
-    heal_parser = subparsers.add_parser("heal", help="Heal failing tests")
-    heal_parser.set_defaults(func=lambda args: cmd_heal(args))
+    plan_parser.add_argument("--save", "-s", action="store_true", help="Save plan to specs/ directory")
+    plan_parser.set_defaults(func=cmd_plan)
 
     # Judge command
     judge_parser = subparsers.add_parser("judge", help="Judge test quality with AI")
