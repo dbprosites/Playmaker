@@ -62,20 +62,26 @@ async function generateTest(): Promise<void> {
   // Track total cost
   let totalCost = 0;
 
+  // IMPORTANT: Do NOT explicitly invoke the agent via Task tool.
+  // The playwright-test-generator agent is a local .claude/agents/ file created by Playwright,
+  // not a built-in Claude Code subagent. The Task tool only knows about built-in subagent types
+  // (general-purpose, Explore, Plan, etc.) and will fail with "agent not available" if we try
+  // to invoke "playwright-test-generator" explicitly.
+  //
+  // Instead, we guide Claude to "use" the agent (similar to planner.ts) and Claude will
+  // discover and use the local agent file without explicit Task tool invocation.
   const q = query({
-    prompt: `IMPORTANT: You MUST use the playwright-test-generator agent (NOT the planner agent).
-
-Call the Task tool with subagent_type="playwright-test-generator" to generate EXACTLY ONE test.
+    prompt: `Use the playwright-test-generator agent to generate EXACTLY ONE test.
 
 **Test Plan:**
 ${testPlan}
 
-CRITICAL INSTRUCTIONS for the generator agent:
+CRITICAL INSTRUCTIONS:
 1. Generate ONLY ONE test for the HIGHEST PRIORITY test case in the plan
 2. Do NOT generate multiple tests
 3. Do NOT generate tests for other test cases
 4. Do NOT create a new test plan - the plan already exists above
-5. Save the generated test file to tests/ directory using the Write tool
+5. Save the generated test file to e2e/ directory using the Write tool
 6. Follow the test plan's structure and expectations exactly
 
 Generate the single most important test and stop.`,
