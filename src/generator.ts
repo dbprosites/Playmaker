@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { execSync } from "child_process";
 import { existsSync, readdirSync, readFileSync } from "fs";
+import { trackQuery } from "./utils/query-tracker";
 
 /**
  * Initialize Playwright agents if they don't exist.
@@ -59,10 +60,6 @@ async function generateTest(): Promise<void> {
   console.log("Test plan loaded");
   console.log("\nGenerating test for highest priority case...\n");
 
-  // Track total cost from SDK result
-  let totalCost = 0;
-  let stepCount = 0;
-
   // IMPORTANT: Do NOT explicitly invoke the agent via Task tool.
   // The playwright-test-generator agent is a local .claude/agents/ file created by Playwright,
   // not a built-in Claude Code subagent. The Task tool only knows about built-in subagent types
@@ -107,33 +104,8 @@ Generate the single most important test and stop.`,
     },
   });
 
-  for await (const message of q) {
-    // Capture final result with authoritative total cost
-    if (message.type === "result" && "usage" in message && message.usage) {
-      const usage = message.usage as any;
-      if (usage.total_cost_usd !== undefined) {
-        totalCost = usage.total_cost_usd;
-      }
-    }
-
-    // Debug: Log assistant message activity
-    if (message.type === "assistant" && "message" in message && message.message) {
-      const assistantMsg = message.message as any;
-      if (assistantMsg.id && assistantMsg.usage) {
-        stepCount++;
-        console.log(`[DEBUG] Step ${stepCount} (${assistantMsg.id}): input=${assistantMsg.usage.input_tokens}, output=${assistantMsg.usage.output_tokens}`);
-      }
-    }
-
-    // Handle budget exceeded error
-    if (message.type === "error" && "error" in message &&
-        typeof message.error === "object" && message.error !== null &&
-        "type" in message.error && message.error.type === "budget_exceeded") {
-      console.error("\n⚠️  Budget limit exceeded");
-      process.exit(1);
-    }
-
-    if (message.type === "assistant" && message.message) {
+  const { totalCost, stepCount } = await trackQuery(q, {
+    onAssistantMessage: (message) => {
       const textContent = message.message.content.find(
         (c: unknown) => (c as { type: string }).type === "text"
       );
@@ -141,7 +113,7 @@ Generate the single most important test and stop.`,
         console.log((textContent as { text: string }).text);
       }
     }
-  }
+  });
 
   // Verify test file was created
   if (existsSync("e2e") && readdirSync("e2e").some(f => f.endsWith(".spec.ts"))) {

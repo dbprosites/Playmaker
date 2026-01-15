@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { execSync } from "child_process";
 import { existsSync, readdirSync, readFileSync } from "fs";
+import { trackQuery } from "./utils/query-tracker";
 
 interface PRInfo {
   number: number;
@@ -136,10 +137,6 @@ async function createTestPlan(): Promise<void> {
   console.log(changeSummary.slice(0, 500) + (changeSummary.length > 500 ? "..." : ""));
   console.log("\nCreating test plan...\n");
 
-  // Track total cost from SDK result
-  let totalCost = 0;
-  let stepCount = 0;
-
   const q = query({
     prompt: `Use the playwright-test-planner agent to create a test plan and SAVE it to specs/ directory.
 
@@ -168,40 +165,16 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
     },
   });
 
-  for await (const message of q) {
-    // Capture final result with authoritative total cost
-    if (message.type === "result" && "usage" in message && message.usage) {
-      const usage = message.usage as any;
-      if (usage.total_cost_usd !== undefined) {
-        totalCost = usage.total_cost_usd;
-      }
-    }
-
-    // Debug: Log assistant message activity
-    if (message.type === "assistant" && message.message) {
-      const assistantMsg = message.message as any;
-      if (assistantMsg.id && assistantMsg.usage) {
-        stepCount++;
-        console.log(`[DEBUG] Step ${stepCount} (${assistantMsg.id}): input=${assistantMsg.usage.input_tokens}, output=${assistantMsg.usage.output_tokens}`);
-      }
-
-      // Display text content
-      const textContent = assistantMsg.content.find(
+  const { totalCost, stepCount } = await trackQuery(q, {
+    onAssistantMessage: (message) => {
+      const textContent = message.message.content.find(
         (c: unknown) => (c as { type: string }).type === "text"
       );
       if (textContent && "text" in (textContent as { text?: string })) {
         console.log((textContent as { text: string }).text);
       }
     }
-
-    // Handle budget exceeded error
-    if (message.type === "error" && "error" in message &&
-        typeof message.error === "object" && message.error !== null &&
-        "type" in message.error && message.error.type === "budget_exceeded") {
-      console.error("\n⚠️  Budget limit exceeded");
-      process.exit(1);
-    }
-  }
+  });
 
   // Verify test plan was created
   if (existsSync("specs") && readdirSync("specs").some(f => f.endsWith(".md") && f !== "README.md")) {
