@@ -59,9 +59,9 @@ async function generateTest(): Promise<void> {
   console.log("Test plan loaded");
   console.log("\nGenerating test for highest priority case...\n");
 
-  // Track total cost with message ID deduplication
+  // Track total cost from SDK result
   let totalCost = 0;
-  const processedMessageIds = new Set<string>();
+  let stepCount = 0;
 
   // IMPORTANT: Do NOT explicitly invoke the agent via Task tool.
   // The playwright-test-generator agent is a local .claude/agents/ file created by Playwright,
@@ -108,25 +108,20 @@ Generate the single most important test and stop.`,
   });
 
   for await (const message of q) {
-    // Track costs from assistant messages with deduplication
-    // Per docs: assistant messages contain usage data, and messages with same ID share identical usage
+    // Capture final result with authoritative total cost
+    if (message.type === "result" && "usage" in message && message.usage) {
+      const usage = message.usage as any;
+      if (usage.total_cost_usd !== undefined) {
+        totalCost = usage.total_cost_usd;
+      }
+    }
+
+    // Debug: Log assistant message activity
     if (message.type === "assistant" && "message" in message && message.message) {
       const assistantMsg = message.message as any;
-      const messageId = assistantMsg.id;
-      const usage = assistantMsg.usage;
-
-      if (messageId && usage && !processedMessageIds.has(messageId)) {
-        processedMessageIds.add(messageId);
-
-        // Calculate cost from usage tokens
-        const inputCost = (usage.input_tokens || 0) * 0.00003;
-        const outputCost = (usage.output_tokens || 0) * 0.00015;
-        const cacheReadCost = (usage.cache_read_input_tokens || 0) * 0.0000075;
-        const stepCost = inputCost + outputCost + cacheReadCost;
-
-        totalCost += stepCost;
-
-        console.log(`[DEBUG] Message ${messageId}: input=${usage.input_tokens}, output=${usage.output_tokens}, cost=$${stepCost.toFixed(4)}`);
+      if (assistantMsg.id && assistantMsg.usage) {
+        stepCount++;
+        console.log(`[DEBUG] Step ${stepCount} (${assistantMsg.id}): input=${assistantMsg.usage.input_tokens}, output=${assistantMsg.usage.output_tokens}`);
       }
     }
 
@@ -153,11 +148,11 @@ Generate the single most important test and stop.`,
     console.log("\n✓ Test generated in e2e/ directory");
   } else {
     console.error("\n⚠️  No test file found in e2e/ directory");
-    console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${processedMessageIds.size} steps)`);
+    console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${stepCount} steps)`);
     process.exit(1);
   }
 
-  console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${processedMessageIds.size} steps)`);
+  console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${stepCount} steps)`);
 }
 
 generateTest().catch((error) => {

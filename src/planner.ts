@@ -136,9 +136,9 @@ async function createTestPlan(): Promise<void> {
   console.log(changeSummary.slice(0, 500) + (changeSummary.length > 500 ? "..." : ""));
   console.log("\nCreating test plan...\n");
 
-  // Track total cost with message ID deduplication
+  // Track total cost from SDK result
   let totalCost = 0;
-  const processedMessageIds = new Set<string>();
+  let stepCount = 0;
 
   const q = query({
     prompt: `Use the playwright-test-planner agent to create a test plan and SAVE it to specs/ directory.
@@ -169,25 +169,20 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
   });
 
   for await (const message of q) {
-    // Track costs from assistant messages with deduplication
-    // Per docs: assistant messages contain usage data, and messages with same ID share identical usage
+    // Capture final result with authoritative total cost
+    if (message.type === "result" && "usage" in message && message.usage) {
+      const usage = message.usage as any;
+      if (usage.total_cost_usd !== undefined) {
+        totalCost = usage.total_cost_usd;
+      }
+    }
+
+    // Debug: Log assistant message activity
     if (message.type === "assistant" && message.message) {
       const assistantMsg = message.message as any;
-      const messageId = assistantMsg.id;
-      const usage = assistantMsg.usage;
-
-      if (messageId && usage && !processedMessageIds.has(messageId)) {
-        processedMessageIds.add(messageId);
-
-        // Calculate cost from usage tokens
-        const inputCost = (usage.input_tokens || 0) * 0.00003;
-        const outputCost = (usage.output_tokens || 0) * 0.00015;
-        const cacheReadCost = (usage.cache_read_input_tokens || 0) * 0.0000075;
-        const stepCost = inputCost + outputCost + cacheReadCost;
-
-        totalCost += stepCost;
-
-        console.log(`[DEBUG] Message ${messageId}: input=${usage.input_tokens}, output=${usage.output_tokens}, cost=$${stepCost.toFixed(4)}`);
+      if (assistantMsg.id && assistantMsg.usage) {
+        stepCount++;
+        console.log(`[DEBUG] Step ${stepCount} (${assistantMsg.id}): input=${assistantMsg.usage.input_tokens}, output=${assistantMsg.usage.output_tokens}`);
       }
 
       // Display text content
@@ -213,11 +208,11 @@ IMPORTANT: The plan must be saved to a markdown file in the specs/ directory usi
     console.log("\n✓ Test plan created in specs/ directory");
   } else {
     console.error("\n⚠️  No test plan found in specs/ directory");
-    console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${processedMessageIds.size} steps)`);
+    console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${stepCount} steps)`);
     process.exit(1);
   }
 
-  console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${processedMessageIds.size} steps)`);
+  console.log(`\n💰 Total cost: $${totalCost.toFixed(4)} (${stepCount} steps)`);
 }
 
 createTestPlan().catch((error) => {
